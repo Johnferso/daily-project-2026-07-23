@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agente Local — ReAct Demo</title>
+<style>
+  :root{
+    --bg:#0f1220; --panel:#181c2e; --panel2:#1f2440; --line:#2c3358;
+    --txt:#e8ebff; --muted:#9aa3d0; --accent:#6c7bff; --accent2:#00d4a0;
+    --thought:#8b93ff; --action:#ffb547; --obs:#00d4a0; --answer:#ff6b9d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:radial-gradient(1200px 600px at 70% -10%,#1b2145,transparent),var(--bg);
+    color:var(--txt);min-height:100vh;padding:24px}
+  .wrap{max-width:860px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+  h1{font-size:1.6rem;margin:0;display:flex;align-items:center;gap:10px}
+  h1 .dot{width:12px;height:12px;border-radius:50%;background:var(--accent2);box-shadow:0 0 12px var(--accent2)}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:.95rem}
+  .lang{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .lang button{background:transparent;color:var(--muted);border:0;padding:8px 14px;cursor:pointer;font-weight:600}
+  .lang button.on{background:var(--accent);color:#fff}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:8px;font-weight:600}
+  textarea{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+    color:var(--txt);padding:12px 14px;font-size:1rem;resize:vertical;min-height:64px;font-family:inherit}
+  textarea:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  button.run{background:linear-gradient(135deg,var(--accent),#8b5cff);color:#fff;border:0;
+    padding:12px 22px;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer}
+  button.run:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);
+    padding:12px 18px;border-radius:12px;cursor:pointer;font-weight:600}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .chip{background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    padding:6px 12px;border-radius:20px;font-size:.82rem;cursor:pointer}
+  .chip:hover{border-color:var(--accent);color:var(--txt)}
+  .tools{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+  .tool{flex:1;min-width:130px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:12px;padding:12px}
+  .tool b{font-size:.9rem}
+  .tool span{display:block;color:var(--muted);font-size:.78rem;margin-top:4px}
+  #timeline{display:flex;flex-direction:column;gap:0}
+  .step{position:relative;padding:0 0 4px 30px;border-left:2px solid var(--line);margin-left:8px}
+  .step:last-child{border-left-color:transparent}
+  .step .bullet{position:absolute;left:-9px;top:2px;width:16px;height:16px;border-radius:50%;
+    background:var(--panel);border:2px solid var(--accent)}
+  .step .box{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+    padding:10px 14px;margin-bottom:14px;animation:pop .3s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .tag{font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .step.thought .bullet{border-color:var(--thought)}
+  .step.thought .tag{color:var(--thought)}
+  .step.action .bullet{border-color:var(--action)}
+  .step.action .tag{color:var(--action)}
+  .step.observation .bullet{border-color:var(--obs)}
+  .step.observation .tag{color:var(--obs)}
+  .step.answer .bullet{border-color:var(--answer);background:var(--answer)}
+  .step.answer .tag{color:var(--answer)}
+  .step .body{margin-top:5px;font-size:.95rem;line-height:1.45}
+  .step .body code{background:#0c0f1d;padding:2px 6px;border-radius:6px;color:var(--accent2);font-size:.88rem}
+  .empty{color:var(--muted);text-align:center;padding:30px;font-style:italic}
+  footer{color:var(--muted);text-align:center;font-size:.8rem;margin-top:16px}
+  footer a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="dot"></span><span data-i18n="title">Agente Local</span></h1>
+    <div class="lang">
+      <button id="btn-pt" class="on" onclick="setLang('pt')">PT</button>
+      <button id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+  </header>
+  <p class="sub" data-i18n="subtitle">Mini-agente ReAct que roda 100% no navegador. Sem LLM, sem chamadas externas — ferramentas simuladas.</p>
+
+  <div class="card">
+    <label data-i18n="goalLabel">Qual é o seu objetivo?</label>
+    <textarea id="goal" data-i18n-ph="goalPh" placeholder="Ex.: Calcule 15% de 240 e resuma o resultado"></textarea>
+    <div class="chips" id="examples"></div>
+    <div class="row">
+      <button class="run" id="runBtn" onclick="runAgent()" data-i18n="run">Executar agente</button>
+      <button class="ghost" onclick="clearAll()" data-i18n="clear">Limpar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <label data-i18n="toolsLabel">Ferramentas disponíveis (simuladas)</label>
+    <div class="tools" id="tools"></div>
+  </div>
+
+  <div class="card">
+    <label data-i18n="timelineLabel">Passos do agente (loop ReAct)</label>
+    <div id="timeline"><div class="empty" data-i18n="empty">Defina um objetivo e clique em Executar.</div></div>
+  </div>
+
+  <footer><span data-i18n="footer">Demonstração educacional do padrão Pensar → Agir → Observar.</span></footer>
+</div>
+
+<script>
+"use strict";
+
+var I18N = {
+  pt:{
+    title:"Agente Local", htmlLang:"pt-BR",
+    subtitle:"Mini-agente ReAct que roda 100% no navegador. Sem LLM, sem chamadas externas — ferramentas simuladas.",
+    goalLabel:"Qual é o seu objetivo?",
+    goalPh:"Ex.: Calcule 15% de 240 e resuma o resultado",
+    run:"Executar agente", clear:"Limpar",
+    toolsLabel:"Ferramentas disponíveis (simuladas)",
+    timelineLabel:"Passos do agente (loop ReAct)",
+    empty:"Defina um objetivo e clique em Executar.",
+    footer:"Demonstração educacional do padrão Pensar → Agir → Observar.",
+    running:"Executando...",
+    THOUGHT:"Pensamento", ACTION:"Ação", OBSERVATION:"Observação", ANSWER:"Resposta final",
+    tThink0:"Recebi o objetivo. Vou analisar o que é preciso e escolher uma ferramenta.",
+    tCalcThink:"O objetivo envolve números. Vou usar a calculadora.",
+    tSearchThink:"Preciso de informação. Vou usar a busca.",
+    tWriteThink:"Vou registrar o resultado num arquivo.",
+    tDoneThink:"Tenho informação suficiente para responder.",
+    aCall:function(t,a){return "Chamar "+t+" com: "+a;},
+    oResult:function(v){return "Resultado: "+v;},
+    finalCalc:function(v){return "O cálculo resultou em "+v+".";},
+    finalSearch:function(q){return "Encontrei informações relevantes sobre \""+q+"\".";},
+    finalWrite:function(f){return "Arquivo \""+f+"\" gravado com sucesso.";},
+    finalGeneric:"Objetivo processado. Veja os passos acima.",
+    searchResult:function(q){return "3 resultados encontrados para \""+q+"\" (dados simulados).";},
+    writeResult:function(f){return "arquivo \""+f+"\" salvo (16 bytes, simulado).";},
+    ex:["Calcule 15% de 240","Pesquise sobre inteligência artificial","Escreva um arquivo notas.txt","Some 128 mais 256 e salve o total"]
+  },
+  en:{
+    title:"Local Agent", htmlLang:"en",
+    subtitle:"A ReAct mini-agent running 100% in your browser. No LLM, no external calls — mocked tools.",
+    goalLabel:"What is your goal?",
+    goalPh:"E.g.: Calculate 15% of 240 and summarize the result",
+    run:"Run agent", clear:"Clear",
+    toolsLabel:"Available tools (mocked)",
+    timelineLabel:"Agent steps (ReAct loop)",
+    empty:"Set a goal and click Run.",
+    footer:"Educational demo of the Think → Act → Observe pattern.",
+    running:"Running...",
+    THOUGHT:"Thought", ACTION:"Action", OBSERVATION:"Observation", ANSWER:"Final answer",
+    tThink0:"Got the goal. I'll analyze what's needed and pick a tool.",
+    tCalcThink:"The goal involves numbers. I'll use the calculator.",
+    tSearchThink:"I need information. I'll use search.",
+    tWriteThink:"I'll record the result to a file.",
+    tDoneThink:"I have enough information to answer.",
+    aCall:function(t,a){return "Call "+t+" with: "+a;},
+    oResult:function(v){return "Result: "+v;},
+    finalCalc:function(v){return "The calculation resulted in "+v+".";},
+    finalSearch:function(q){return "I found relevant information about \""+q+"\".";},
+    finalWrite:function(f){return "File \""+f+"\" written successfully.";},
+    finalGeneric:"Goal processed. See the steps above.",
+    searchResult:function(q){return "3 results found for \""+q+"\" (mocked data).";},
+    writeResult:function(f){return "file \""+f+"\" saved (16 bytes, mocked).";},
+    ex:["Calculate 15% of 240","Search about artificial intelligence","Write a file notes.txt","Add 128 plus 256 and save the total"]
+  }
+};
+
+var lang = "pt";
+var running = false;
+
+var TOOLS = {
+  pt:[
+    {n:"search", d:"Busca informações (mock)"},
+    {n:"calculator", d:"Avalia expressões matemáticas"},
+    {n:"write_file", d:"Grava um arquivo (mock)"}
+  ],
+  en:[
+    {n:"search", d:"Looks up information (mock)"},
+    {n:"calculator", d:"Evaluates math expressions"},
+    {n:"write_file", d:"Writes a file (mock)"}
+  ]
+};
+
+/* ---------- Mocked tools ---------- */
+function toolCalculator(expr){
+  // safe arithmetic evaluator: numbers, + - * / % ( ) . and spaces only
+  var clean = String(expr).replace(/[^0-9+\-*/%(). ]/g,"");
+  if(!clean.trim()) return "NaN";
+  try{
+    // percent handling: "15% of 240" already normalized upstream to 15/100*240
+    var val = Function('"use strict";return ('+clean+')')();
+    if(typeof val !== "number" || !isFinite(val)) return "NaN";
+    return Math.round(val*1e6)/1e6;
+  }catch(e){ return "NaN"; }
+}
+function toolSearch(query){ return I18N[lang].searchResult(query); }
+function toolWriteFile(fname){ return I18N[lang].writeResult(fname); }
+
+/* ---------- Planner: turns a goal into ReAct steps ---------- */
+function planSteps(goal){
+  var t = I18N[lang];
+  var g = goal.toLowerCase();
+  var steps = [];
+  steps.push({type:"thought", text:t.tThink0});
+
+  var hasNumber = /\d/.test(goal);
+  var mathHint = /(calcul|soma|some|mais|menos|vezes|dividid|%|percent|add|sum|plus|minus|times|multipl|divi|calculate)/i.test(goal);
+  var searchHint = /(pesquis|busca|procur|search|look ?up|find|sobre|about)/i.test(goal);
+  var writeHint = /(escrev|grav|salv|arquivo|write|save|file|\.txt|\.md)/i.test(goal);
+
+  var lastValue = null, lastQuery = null, lastFile = null;
+
+  if(mathHint || (hasNumber && !searchHint && !writeHint)){
+    steps.push({type:"thought", text:t.tCalcThink});
+    var expr = extractExpression(goal);
+    steps.push({type:"action", tool:"calculator", arg:expr});
+    lastValue = toolCalculator(expr);
+    steps.push({type:"observation", text:t.oResult(lastValue)});
+  }
+  if(searchHint){
+    steps.push({type:"thought", text:t.tSearchThink});
+    var q = extractQuery(goal);
+    lastQuery = q;
+    steps.push({type:"action", tool:"search", arg:q});
+    steps.push({type:"observation", text:t.oResult(toolSearch(q))});
+  }
+  if(writeHint){
+    steps.push({type:"thought", text:t.tWriteThink});
+    var f = extractFilename(goal);
+    lastFile = f;
+    steps.push({type:"action", tool:"write_file", arg:f});
+    steps.push({type:"observation", text:t.oResult(toolWriteFile(f))});
+  }
+
+  steps.push({type:"thought", text:t.tDoneThink});
+  var final;
+  if(lastFile) final = t.finalWrite(lastFile);
+  else if(lastValue!==null && lastValue!=="NaN") final = t.finalCalc(lastValue);
+  else if(lastQuery) final = t.finalSearch(lastQuery);
+  else final = t.finalGeneric;
+  steps.push({type:"answer", text:final});
+  return steps;
+}
+
+function extractExpression(goal){
+  var g = goal.toLowerCase();
+  // "15% of 240" or "15% de 240"
+  var pct = g.match(/(\d+(?:\.\d+)?)\s*%\s*(?:of|de|do|da)\s*(\d+(?:\.\d+)?)/);
+  if(pct) return "("+pct[1]+"/100)*"+pct[2];
+  // word operators
+  g = g.replace(/\bmais\b|\bplus\b|\badd\b|\bsum\b|\be\b/g," + ")
+       .replace(/\bmenos\b|\bminus\b/g," - ")
+       .replace(/\bvezes\b|\btimes\b|\bmultiplied by\b|\bmultiplicado por\b/g," * ")
+       .replace(/\bdividido por\b|\bdivided by\b/g," / ");
+  var nums = g.match(/\d+(?:\.\d+)?(?:\s*[+\-*/%]\s*\d+(?:\.\d+)?)*/g);
+  if(nums){
+    // pick the longest arithmetic-looking chunk
+    nums.sort(function(a,b){return b.length-a.length;});
+    if(/[+\-*/%]/.test(nums[0])) return nums[0];
+    // two bare numbers -> sum by default
+    var all = g.match(/\d+(?:\.\d+)?/g);
+    if(all && all.length>=2) return all.slice(0,2).join(" + ");
+    return nums[0];
+  }
+  return "0";
+}
+function extractQuery(goal){
+  var q = goal.replace(/^(pesquis\w*|busca\w*|procur\w*|search|look ?up|find)\s*(sobre|about|for|por)?/i,"").trim();
+  return q || goal;
+}
+function extractFilename(goal){
+  var m = goal.match(/([\w\-]+\.(txt|md|json|csv|log))/i);
+  if(m) return m[1];
+  return lang==="pt" ? "resultado.txt" : "result.txt";
+}
+
+/* ---------- Render ---------- */
+function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function renderStep(step){
+  var t = I18N[lang];
+  var tag, body;
+  if(step.type==="action"){
+    tag=t.ACTION;
+    body = t.aCall("<code>"+esc(step.tool)+"</code>", "<code>"+esc(step.arg)+"</code>");
+  }else{
+    tag = step.type==="thought"?t.THOUGHT:(step.type==="observation"?t.OBSERVATION:t.ANSWER);
+    body = esc(step.text);
+  }
+  var div = document.createElement("div");
+  div.className = "step "+step.type;
+  div.innerHTML = '<span class="bullet"></span><span class="tag">'+tag+
+    '</span><div class="body">'+body+'</div>';
+  return div;
+}
+
+function runAgent(){
+  if(running) return;
+  var goal = document.getElementById("goal").value.trim();
+  var tl = document.getElementById("timeline");
+  if(!goal){ tl.innerHTML='<div class="empty">'+I18N[lang].empty+'</div>'; return; }
+  running = true;
+  var btn = document.getElementById("runBtn");
+  btn.disabled = true; btn.textContent = I18N[lang].running;
+  tl.innerHTML = "";
+  var steps = planSteps(goal);
+  var i = 0;
+  function next(){
+    if(i>=steps.length){
+      running=false; btn.disabled=false; btn.textContent=I18N[lang].run;
+      return;
+    }
+    tl.appendChild(renderStep(steps[i]));
+    i++;
+    // animation delay; guard for non-timer test environments
+    if(typeof window.__noDelay !== "undefined"){ next(); }
+    else setTimeout(next, 550);
+  }
+  next();
+}
+
+function clearAll(){
+  document.getElementById("goal").value = "";
+  document.getElementById("timeline").innerHTML =
+    '<div class="empty">'+I18N[lang].empty+'</div>';
+}
+
+/* ---------- i18n plumbing ---------- */
+function renderTools(){
+  var box = document.getElementById("tools");
+  box.innerHTML = "";
+  TOOLS[lang].forEach(function(tool){
+    var d = document.createElement("div");
+    d.className="tool";
+    d.innerHTML = "<b>"+esc(tool.n)+"</b><span>"+esc(tool.d)+"</span>";
+    box.appendChild(d);
+  });
+}
+function renderExamples(){
+  var box = document.getElementById("examples");
+  box.innerHTML = "";
+  I18N[lang].ex.forEach(function(x){
+    var c = document.createElement("span");
+    c.className="chip"; c.textContent=x;
+    c.onclick=function(){ document.getElementById("goal").value=x; };
+    box.appendChild(c);
+  });
+}
+function applyI18n(){
+  var t = I18N[lang];
+  document.documentElement.lang = t.htmlLang;
+  var nodes = document.querySelectorAll("[data-i18n]");
+  for(var i=0;i<nodes.length;i++){
+    var k = nodes[i].getAttribute("data-i18n");
+    if(t[k]!==undefined) nodes[i].textContent = t[k];
+  }
+  var phs = document.querySelectorAll("[data-i18n-ph]");
+  for(var j=0;j<phs.length;j++){
+    var pk = phs[j].getAttribute("data-i18n-ph");
+    if(t[pk]!==undefined) phs[j].setAttribute("placeholder", t[pk]);
+  }
+  document.getElementById("btn-pt").className = lang==="pt"?"on":"";
+  document.getElementById("btn-en").className = lang==="en"?"on":"";
+  renderTools(); renderExamples();
+}
+function setLang(l){
+  lang = l;
+  applyI18n();
+  // reset timeline to keep language consistent
+  document.getElementById("timeline").innerHTML =
+    '<div class="empty">'+I18N[lang].empty+'</div>';
+}
+
+applyI18n();
+
+// expose for tests
+window.__agent = { planSteps:planSteps, toolCalculator:toolCalculator,
+  extractExpression:extractExpression, setLang:setLang, runAgent:runAgent,
+  getLang:function(){return lang;} };
+</script>
+</body>
+</html>
